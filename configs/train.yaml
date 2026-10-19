@@ -1,0 +1,34 @@
+data:
+  path: data/raw/creditcard.csv
+  drop_duplicates: true        # the Kaggle file contains ~1k exact duplicate rows
+
+split:
+  strategy: time               # time (train on past, test on future) | stratified
+  test_size: 0.2
+  val_size: 0.2                # taken from the training part; used only to pick the threshold
+  seed: 42
+
+features:
+  use_time_features: true      # hour-of-day (sin/cos); raw elapsed seconds are never used
+  log_amount: true
+
+imbalance: class_weight        # class_weight | smote | none
+
+model:
+  name: hgb                    # logreg | rf | hgb | lightgbm
+  params: {}
+
+threshold:
+  strategy: cost               # cost | f1 | precision_floor
+  fn_cost_mode: amount         # amount: a missed fraud costs its Amount | fixed: cost_fn
+  cost_fn: 100.0               # only used when fn_cost_mode = fixed
+  cost_fp: 5.0                 # cost of reviewing/blocking one legitimate transaction (assumption)
+  min_precision: 0.8           # only used when strategy = precision_floor
+
+tracking:
+  enabled: true
+  uri: sqlite:///mlflow.db
+  experiment: credit-card-fraud
+
+outputs:
+  dir: models
