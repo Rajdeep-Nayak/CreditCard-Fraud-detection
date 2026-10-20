@@ -1,0 +1,24 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /app
+
+# dependencies first, so code changes don't invalidate this layer
+COPY docker/requirements-core.txt docker/requirements-api.txt ./
+RUN pip install -r requirements-api.txt
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --no-deps .
+
+# the exported champion (python -m fraudguard.registry export --out deploy/champion)
+COPY deploy/champion /app/model
+COPY docker/healthcheck.py /app/healthcheck.py
+ENV FRAUD_MODEL_SOURCE=local FRAUD_MODEL_DIR=/app/model
+
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["python", "/app/healthcheck.py"]
+CMD ["sh", "-c", "exec uvicorn fraudguard.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

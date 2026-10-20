@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,9 @@ def load_config(path: str | Path | None = None, overrides: dict | None = None) -
             cfg = deep_update(cfg, yaml.safe_load(fh) or {})
     if overrides:
         cfg = deep_update(cfg, overrides)
+    env_uri = os.environ.get("FRAUD_TRACKING_URI")  # e.g. http://127.0.0.1:5000 for the compose MLflow server
+    if env_uri:
+        cfg["tracking"]["uri"] = env_uri
     validate(cfg)
     return cfg
 

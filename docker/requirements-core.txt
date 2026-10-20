@@ -1,0 +1,6 @@
+# Runtime pins for loading the exported model. The pickle was produced with these versions,
+# so the image must use exactly them (scikit-learn in particular is strict about it).
+pandas==3.0.6
+numpy==2.5.4
+scikit-learn==1.9.1
+joblib==1.6.0
