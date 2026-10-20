@@ -4,12 +4,15 @@ one the `champion` alias, and only replaces an existing champion if the challeng
     python -m fraudguard.registry list
     python -m fraudguard.registry promote [--metric val_pr_auc] [--dry-run]
     python -m fraudguard.registry show        # loads the champion and scores a few demo rows
+    python -m fraudguard.registry export --out artifacts/champion   # files the API serves
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
+from pathlib import Path
 from typing import Any
 
 from .config import load_config
@@ -73,21 +76,14 @@ def _client(cfg: dict):
 
 
 def list_versions(client, name: str) -> list[dict]:
-    try:  # alias -> version map lives on the registered model
-        by_alias = {alias: int(ver) for alias, ver in (client.get_registered_model(name).aliases or {}).items()}
-    except Exception:
-        by_alias = {}
     return sorted(
         (
-            {
-                "version": int(mv.version),
-                "tags": dict(mv.tags or {}),
-                "aliases": [a for a, ver in by_alias.items() if ver == int(mv.version)],
-            }
+            {"version": int(mv.version), "tags": dict(mv.tags or {}), "aliases": list(getattr(mv, "aliases", None) or [])}
             for mv in client.search_model_versions(f"name='{name}'")
         ),
         key=lambda v: v["version"],
     )
+
 
 def current_champion(client, name: str, alias: str, versions: list[dict]) -> dict | None:
     try:
@@ -150,12 +146,37 @@ def load_champion(cfg: dict):
     return model, float(info["tags"]["threshold"]), info
 
 
+def export_champion(cfg: dict, out_dir: str | Path) -> Path:
+    """Write the champion to model.joblib + metadata.json so the API can serve it without MLflow."""
+    import joblib
+
+    from .data import FEATURE_COLS
+
+    model, threshold, info = load_champion(cfg)
+    reg = cfg["registry"]
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, out / "model.joblib", compress=3)
+    meta = {
+        "model_version": info["version"],
+        "model": info["tags"].get("model"),
+        "threshold": threshold,
+        "feature_columns": FEATURE_COLS,
+        "tags": info["tags"],
+        "source": f"registry:{reg['model_name']}@{reg['champion_alias']}",
+        "exported_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+    }
+    (out / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Model registry helper.")
-    parser.add_argument("command", choices=["list", "promote", "show"])
+    parser.add_argument("command", choices=["list", "promote", "show", "export"])
     parser.add_argument("--config", default="configs/train.yaml")
     parser.add_argument("--metric", help="metric tag to rank by (default: registry.promote_metric)")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--out", default="artifacts/champion", help="export target directory")
     args = parser.parse_args(argv)
     cfg = load_config(args.config)
     reg = cfg["registry"]
@@ -165,6 +186,10 @@ def main(argv: list[str] | None = None) -> None:
         _print_table(list_versions(client, reg["model_name"]), args.metric or reg["promote_metric"], reg["champion_alias"])
     elif args.command == "promote":
         promote(cfg, args.metric, args.dry_run)
+    elif args.command == "export":
+        out = export_champion(cfg, args.out)
+        size_mb = (out / "model.joblib").stat().st_size / 1e6
+        print(f"Exported champion to {out}  (model.joblib {size_mb:.1f} MB)")
     else:
         from .data import FEATURE_COLS
         from .synthetic import make_synthetic_creditcard

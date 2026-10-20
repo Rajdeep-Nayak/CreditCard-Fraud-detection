@@ -1,4 +1,4 @@
-.PHONY: install data data-synthetic train train-all promote registry-show test lint mlflow-ui
+.PHONY: install data data-synthetic train train-all promote registry-show export-champion serve test lint mlflow-ui
 
 install:
 	pip install -r requirements-dev.txt && pip install -e .
@@ -20,6 +20,12 @@ promote:
 
 registry-show:
 	python -m fraudguard.registry show
+
+export-champion:
+	python -m fraudguard.registry export --out artifacts/champion
+
+serve:
+	uvicorn fraudguard.api.main:app --reload
 
 test:
 	pytest
