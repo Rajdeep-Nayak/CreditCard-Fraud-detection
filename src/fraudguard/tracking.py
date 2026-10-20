@@ -21,7 +21,7 @@ class NullTracker:
     def log_params(self, params: dict[str, Any]) -> None: ...
     def log_metrics(self, metrics: dict[str, float]) -> None: ...
     def log_artifact(self, path: str | Path) -> None: ...
-    def log_model(self, model, input_example) -> None: ...
+    def log_model(self, model, input_example, registered_model_name=None, version_tags=None) -> None: ...
 
 
 class MlflowTracker:
@@ -29,6 +29,7 @@ class MlflowTracker:
         import mlflow
 
         self._mlflow = mlflow
+        self._uri = uri
         mlflow.set_tracking_uri(uri)
         mlflow.set_experiment(experiment)
 
@@ -46,7 +47,8 @@ class MlflowTracker:
     def log_artifact(self, path: str | Path) -> None:
         self._mlflow.log_artifact(str(path))
 
-    def log_model(self, model, input_example) -> None:
+    def log_model(self, model, input_example, registered_model_name=None, version_tags=None) -> None:
+        """Log the model; optionally register it as a new version and tag that version."""
         import mlflow.sklearn
         from mlflow.models import infer_signature
         from skops.io import dumps, get_untrusted_types
@@ -57,16 +59,29 @@ class MlflowTracker:
         # for a model file that came from someone else.
         trusted = get_untrusted_types(data=dumps(model))
         signature = infer_signature(input_example, model.predict_proba(input_example)[:, 1])
+        kwargs: dict[str, Any] = {"signature": signature, "input_example": input_example}
+        if registered_model_name:
+            kwargs["registered_model_name"] = registered_model_name
+
         try:  # MLflow >= 3
-            mlflow.sklearn.log_model(
-                model,
-                name="model",
-                signature=signature,
-                input_example=input_example,
-                skops_trusted_types=trusted,
-            )
+            info = mlflow.sklearn.log_model(model, name="model", skops_trusted_types=trusted, **kwargs)
         except TypeError:  # MLflow 2.x
-            mlflow.sklearn.log_model(model, artifact_path="model", signature=signature, input_example=input_example)
+            info = mlflow.sklearn.log_model(model, artifact_path="model", **kwargs)
+
+        if registered_model_name and version_tags:
+            self._tag_version(registered_model_name, info, version_tags)
+
+    def _tag_version(self, name: str, info, tags: dict[str, str]) -> None:
+        from mlflow import MlflowClient
+
+        client = MlflowClient(tracking_uri=self._uri, registry_uri=self._uri)
+        version = getattr(info, "registered_model_version", None)
+        if version is None:  # fall back to "the newest version of this model"
+            version = max(int(v.version) for v in client.search_model_versions(f"name='{name}'"))
+        for key, value in tags.items():
+            client.set_model_version_tag(name, str(version), key, str(value))
+
+
 def get_tracker(tracking_cfg: dict) -> NullTracker | MlflowTracker:
     if not tracking_cfg.get("enabled", True):
         return NullTracker()

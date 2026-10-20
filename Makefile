@@ -1,4 +1,4 @@
-.PHONY: install data data-synthetic train train-all test lint mlflow-ui
+.PHONY: install data data-synthetic train train-all promote registry-show test lint mlflow-ui
 
 install:
 	pip install -r requirements-dev.txt && pip install -e .
@@ -14,6 +14,12 @@ train:
 
 train-all:
 	python -m fraudguard.train --config configs/train.yaml --models logreg,rf,hgb
+
+promote:
+	python -m fraudguard.registry promote
+
+registry-show:
+	python -m fraudguard.registry show
 
 test:
 	pytest

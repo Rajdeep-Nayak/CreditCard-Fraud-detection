@@ -33,6 +33,7 @@ def test_end_to_end_training(tmp_path, model, params):
 
     meta = json.loads((out / "metadata.json").read_text())
     assert meta["feature_columns"] == FEATURE_COLS
+    assert 0 < meta["val_metrics"]["pr_auc"] <= 1  # validation metrics are what the registry ranks on
 
     # the saved pipeline accepts raw columns, which is exactly what the API will send
     model_obj = joblib.load(out / "model.joblib")
