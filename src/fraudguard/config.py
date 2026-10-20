@@ -22,6 +22,12 @@ DEFAULTS: dict[str, Any] = {
         "min_precision": 0.8,
     },
     "tracking": {"enabled": True, "uri": "sqlite:///mlflow.db", "experiment": "credit-card-fraud"},
+    "registry": {
+        "model_name": "fraud-detector",
+        "champion_alias": "champion",
+        "promote_metric": "val_pr_auc",   # threshold-free, so not biased by the tuned threshold
+        "min_improvement": 0.0,           # a challenger must beat the champion by more than this
+    },
     "outputs": {"dir": "models"},
 }
 

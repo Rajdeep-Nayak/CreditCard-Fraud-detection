@@ -67,6 +67,12 @@ def run_training(cfg: dict, df: pd.DataFrame | None = None, data_info: dict | No
             min_precision=thr_cfg["min_precision"],
         )
 
+        # validation metrics: used to pick the champion (never the test set)
+        val_metrics = compute_metrics(
+            splits.val[TARGET], val_score, threshold,
+            fn_costs=_fn_costs(splits.val, thr_cfg), cost_fp=thr_cfg["cost_fp"],
+        )
+
         # 2) report on the untouched test set
         test_score = model.predict_proba(splits.test[FEATURE_COLS])[:, 1]
         metrics = compute_metrics(
@@ -75,6 +81,7 @@ def run_training(cfg: dict, df: pd.DataFrame | None = None, data_info: dict | No
         )
         metrics["recall_at_precision_0.9"] = recall_at_precision(splits.test[TARGET], test_score, 0.9)
 
+        tracker.log_metrics({f"val_{k}": v for k, v in val_metrics.items()})
         tracker.log_metrics({f"test_{k}": v for k, v in metrics.items()})
         pr_png = plot_pr_curve(splits.test[TARGET], test_score, metrics, out_dir / "pr_curve.png")
         cm_png = plot_confusion(metrics, out_dir / "confusion_matrix.png")
@@ -86,6 +93,7 @@ def run_training(cfg: dict, df: pd.DataFrame | None = None, data_info: dict | No
             "threshold": threshold,
             "feature_columns": FEATURE_COLS,
             "metrics": metrics,
+            "val_metrics": val_metrics,
             "splits": splits.describe(),
             "data": data_info,
             "config": cfg,
@@ -97,15 +105,36 @@ def run_training(cfg: dict, df: pd.DataFrame | None = None, data_info: dict | No
 
         for artifact in (pr_png, cm_png, meta_json):
             tracker.log_artifact(artifact)
-        tracker.log_model(model, splits.test[FEATURE_COLS].head(5))
+        version_tags = {
+            "model": name,
+            "imbalance": cfg["imbalance"],
+            "run_name": run_name,
+            "threshold": str(threshold),
+            "git_sha": _git_sha() or "unknown",
+            "trained_at_utc": stamp,
+            **{f"val_{k}": f"{val_metrics[k]:.6f}" for k in ("pr_auc", "roc_auc", "precision", "recall", "f1", "cost_saving_pct")},
+        }
+        tracker.log_model(
+            model,
+            splits.test[FEATURE_COLS].head(5),
+            registered_model_name=cfg["registry"]["model_name"],
+            version_tags=version_tags,
+        )
 
-    return {"run_name": run_name, "out_dir": str(out_dir), "threshold": threshold, "metrics": metrics}
+    return {
+        "run_name": run_name,
+        "out_dir": str(out_dir),
+        "threshold": threshold,
+        "metrics": metrics,
+        "val_metrics": val_metrics,
+    }
 
 
 def _print_summary(summary: dict) -> None:
     m = summary["metrics"]
     print(f"\n== {summary['run_name']} ==")
-    print(f"  PR-AUC {m['pr_auc']:.4f} | ROC-AUC {m['roc_auc']:.4f} | threshold {m['threshold']:.4f}")
+    print(f"  validation PR-AUC {summary['val_metrics']['pr_auc']:.4f}  (used to pick the champion)")
+    print(f"  TEST: PR-AUC {m['pr_auc']:.4f} | ROC-AUC {m['roc_auc']:.4f} | threshold {m['threshold']:.4f}")
     print(f"  fraud precision {m['precision']:.3f} | recall {m['recall']:.3f} | F1 {m['f1']:.3f}")
     print(f"  TP {int(m['tp'])}  FP {int(m['fp'])}  FN {int(m['fn'])}  TN {int(m['tn'])}")
     if "cost_saving_pct" in m:

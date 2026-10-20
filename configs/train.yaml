@@ -30,5 +30,11 @@ tracking:
   uri: sqlite:///mlflow.db
   experiment: credit-card-fraud
 
+registry:
+  model_name: fraud-detector
+  champion_alias: champion
+  promote_metric: val_pr_auc   # chosen on validation data; the test set is only for reporting
+  min_improvement: 0.0         # challenger must beat the current champion by more than this
+
 outputs:
   dir: models
