@@ -1,0 +1,21 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+WORKDIR /app
+
+COPY docker/requirements-core.txt docker/requirements-ui.txt ./
+RUN pip install -r requirements-ui.txt
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --no-deps .
+
+COPY app ./app
+COPY docs/sample_transaction.json ./docs/sample_transaction.json
+ENV FRAUD_API_URL=http://api:8000
+
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8501
+CMD ["sh", "-c", "exec streamlit run app/streamlit_app.py --server.port ${PORT:-8501} --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false"]

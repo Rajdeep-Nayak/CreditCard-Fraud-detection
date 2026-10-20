@@ -89,6 +89,28 @@ On Windows PowerShell set the variable first: `$env:FRAUD_API_URL="http://127.0.
 ![UI single transaction](docs/ui_single.png)
 ![UI batch scoring](docs/ui_batch.png)
 
+## Docker
+
+One command starts the API, the UI and an MLflow server:
+
+```bash
+docker compose up --build
+```
+
+| Service | URL |
+|---|---|
+| API (FastAPI docs) | http://localhost:8000/docs |
+| UI (Streamlit) | http://localhost:8501 |
+| MLflow | http://localhost:5000 |
+
+The API image serves the exported champion from `deploy/champion/`. After promoting a new champion, refresh it with
+`python -m fraudguard.registry export --out deploy/champion` and rebuild. The images pin the library versions the
+model was trained with, because a pickled scikit-learn model must be loaded by the same version.
+
+To send training runs to the containerised MLflow server instead of the local SQLite file, set
+`FRAUD_TRACKING_URI=http://127.0.0.1:5000` before running `python -m fraudguard.train`
+(PowerShell: `$env:FRAUD_TRACKING_URI="http://127.0.0.1:5000"`).
+
 ## Quickstart
 
 ```bash
@@ -110,6 +132,9 @@ The `Makefile` wraps these commands for Linux and macOS.
 
 ```
 app/                      Streamlit UI and demo data (held-out real transactions)
+deploy/champion/          the exported champion model the API image serves
+docker/                   pinned runtime requirements and the container health probe
+Dockerfile.api, Dockerfile.ui, Dockerfile.mlflow, docker-compose.yml
 configs/train.yaml        every knob: split, features, imbalance handling, model, costs, tracking, registry
 docs/                     findings on the original notebooks, screenshots, sample payload
 notebooks/legacy/         the original exploratory notebooks, kept for history
@@ -135,7 +160,7 @@ tests/                    metrics are checked against a brute-force reference; A
 - [x] **3. MLflow**: model registry with a `champion` alias, promotion rule
 - [x] **4. FastAPI service**: `/predict`, `/predict/batch`, `/health`, `/model-info`
 - [x] **5. Frontend**: Streamlit UI with single and batch scoring
-- [ ] **6. Docker + docker-compose**: API, UI and MLflow
+- [x] **6. Docker + docker-compose**: API, UI and MLflow
 - [ ] **7. CI/CD**: GitHub Actions (lint, tests, image build, deploy)
 - [ ] **8. Monitoring**: drift report and prediction logging
 - [ ] **9. Hosting**: free-tier deployment and a live demo link
