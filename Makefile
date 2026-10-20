@@ -1,4 +1,4 @@
-.PHONY: install data data-synthetic train train-all promote registry-show export-champion serve test lint mlflow-ui
+.PHONY: install data data-synthetic train train-all promote registry-show export-champion serve ui demo-samples test lint mlflow-ui
 
 install:
 	pip install -r requirements-dev.txt && pip install -e .
@@ -26,6 +26,12 @@ export-champion:
 
 serve:
 	uvicorn fraudguard.api.main:app --reload
+
+ui:
+	streamlit run app/streamlit_app.py
+
+demo-samples:
+	python scripts/make_demo_samples.py
 
 test:
 	pytest
