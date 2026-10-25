@@ -143,3 +143,53 @@ def test_pick_demo_samples_from_test_window():
     assert [s["actual_class"] for s in samples] == [0, 0, 0, 1, 1, 1]
     assert all(set(s["record"]) == set(FEATURE_COLS) for s in samples)
     assert samples[3]["name"] == "Held-out fraud #1"
+
+
+# ---------------------------------------------------------------- threshold analysis
+from fraudguard.ui_core import best_cost_threshold, build_demo_batch, operating_point, threshold_sweep  # noqa: E402
+
+
+def _toy_scored():
+    # 2 frauds (amounts 100 and 50), 4 legit rows each standing for 10 transactions
+    return pd.DataFrame(
+        {
+            "fraud_probability": [0.9, 0.4, 0.6, 0.2, 0.1, 0.05],
+            "Class": [1, 1, 0, 0, 0, 0],
+            "Amount": [100.0, 50.0, 10.0, 10.0, 10.0, 10.0],
+            "weight": [1.0, 1.0, 10.0, 10.0, 10.0, 10.0],
+        }
+    )
+
+
+def test_sweep_matches_hand_computation():
+    row = operating_point(_toy_scored(), cost_fp=2.0, threshold=0.5)
+    # flagged: the 0.9 fraud (caught) and the 0.6 legit row (weight 10 -> 10 false alarms)
+    assert row["caught"] == 1 and row["missed"] == 1 and row["false_alarms"] == 10
+    assert row["precision"] == pytest.approx(1 / 11) and row["recall"] == pytest.approx(0.5)
+    assert row["total_cost"] == pytest.approx(50.0 + 2.0 * 10)  # missed 50 + 10 false alarms * 2
+    assert row["baseline_cost"] == 150.0 and row["cost_saving_pct"] == pytest.approx((150 - 70) / 150 * 100)
+    assert row["fp_per_10k_legit"] == pytest.approx(10 / 40 * 10_000)
+
+
+def test_weights_default_to_one_and_best_threshold_is_lowest_cost():
+    scored = _toy_scored().drop(columns="weight")
+    sweep = threshold_sweep(scored, cost_fp=1.0)
+    assert len(sweep) == 99 and sweep["threshold"].is_monotonic_increasing
+    best = best_cost_threshold(sweep)
+    assert sweep.loc[sweep["threshold"] == best, "total_cost"].iloc[0] == sweep["total_cost"].min()
+
+
+def test_free_false_alarms_push_the_best_threshold_down():
+    scored = _toy_scored()
+    cheap = best_cost_threshold(threshold_sweep(scored, cost_fp=0.0))
+    pricey = best_cost_threshold(threshold_sweep(scored, cost_fp=1000.0))
+    assert cheap <= pricey
+
+
+def test_demo_batch_weights_restore_the_test_window():
+    test = split_data(make_synthetic_creditcard(8000, fraud_rate=0.03)).test
+    batch = build_demo_batch(test, n_legit=50, seed=3)
+    assert batch["weight"].sum() == pytest.approx(len(test), rel=1e-4)
+    assert int(batch["Class"].sum()) == int(test["Class"].sum())  # every fraud is kept
+    assert list(batch.columns) == [*FEATURE_COLS, "Class", "weight"]
+    assert (batch.loc[batch["Class"] == 1, "weight"] == 1.0).all()
