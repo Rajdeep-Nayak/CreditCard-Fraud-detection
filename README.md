@@ -73,9 +73,15 @@ A sample payload is in [docs/sample_transaction.json](docs/sample_transaction.js
 
 ## UI
 
-A Streamlit app scores single transactions (with an approximate per-feature explanation) and CSV batches,
-with an adjustable decision threshold. It calls the API when `FRAUD_API_URL` is set; otherwise it loads the
-exported champion directly.
+A Streamlit app with five tabs:
+
+- **Score a transaction**: pick a real held-out transaction, edit its features and get a risk gauge, the decision and an
+  approximate per-feature explanation, with the measured API latency.
+- **Batch analysis**: upload a CSV or use the demo batch; precision, recall and false alarms per 10,000 legitimate
+  transactions (the demo batch is re-weighted to the real fraud rate), a sortable risk table and a CSV download.
+- **Cost simulator**: drag the decision threshold and the cost of a false alarm and watch cost, recall and precision trade
+  off, with the model-tuned threshold marked on the curves.
+- **How it works** and **Model card**: the pipeline diagram and an honest list of limitations.
 
 ```bash
 pip install -r requirements-ui.txt
@@ -86,8 +92,9 @@ FRAUD_API_URL=http://127.0.0.1:8000 streamlit run app/streamlit_app.py   # termi
 
 On Windows PowerShell set the variable first: `$env:FRAUD_API_URL="http://127.0.0.1:8000"`.
 
-![UI single transaction](docs/ui_single.png)
-![UI batch scoring](docs/ui_batch.png)
+![Score a transaction](docs/ui_score.png)
+![Cost simulator](docs/ui_simulator.png)
+![Batch analysis](docs/ui_batch.png)
 
 ## Docker
 
@@ -132,6 +139,7 @@ The `Makefile` wraps these commands for Linux and macOS.
 
 ```
 app/                      Streamlit UI and demo data (held-out real transactions)
+.streamlit/               UI theme
 deploy/champion/          the exported champion model the API image serves
 docker/                   pinned runtime requirements and the container health probe
 Dockerfile.api, Dockerfile.ui, Dockerfile.mlflow, docker-compose.yml
@@ -148,7 +156,8 @@ src/fraudguard/
   registry.py             register, promote, export the champion
   serving.py              model loading and scoring, framework-free
   api/                    FastAPI app and request/response schemas
-  ui_core.py              UI backends, batch scoring, explanations
+  ui_core.py              UI backends, batch scoring, explanations, threshold/cost analysis
+  ui_viz.py               risk gauge, hero and architecture cards, charts
   train.py                training CLI
 tests/                    metrics are checked against a brute-force reference; API tested end to end
 ```
