@@ -10,6 +10,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-deps .
 
+COPY .streamlit ./.streamlit
 COPY app ./app
 COPY docs/sample_transaction.json ./docs/sample_transaction.json
 ENV FRAUD_API_URL=http://api:8000

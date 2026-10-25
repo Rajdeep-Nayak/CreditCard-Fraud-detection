@@ -17,6 +17,8 @@ services:
       dockerfile: Dockerfile.ui
     environment:
       FRAUD_API_URL: http://api:8000
+      FRAUD_PUBLIC_API_URL: http://localhost:8000
+      FRAUD_PUBLIC_MLFLOW_URL: http://localhost:5000
     ports:
       - "8501:8501"
     depends_on:

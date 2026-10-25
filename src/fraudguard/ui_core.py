@@ -12,6 +12,7 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from .data import FEATURE_COLS, TARGET, V_COLS
@@ -173,3 +174,76 @@ def pick_demo_samples(test_df: pd.DataFrame, n_each: int = 3, seed: int = 42) ->
                 }
             )
     return samples
+
+
+def build_demo_batch(test_df: pd.DataFrame, n_legit: int = 300, seed: int = 42) -> pd.DataFrame:
+    """All frauds of the test window plus a sample of legitimate rows, with a `weight` column.
+
+    A 20 % fraud rate would exaggerate precision, so each sampled legitimate row carries the weight of the
+    legitimate rows it stands for. Weighted metrics then describe the full test window, and the weights
+    sum to len(test_df).
+    """
+    frauds = test_df[test_df[TARGET] == 1]
+    legit_all = test_df[test_df[TARGET] == 0]
+    legit = legit_all.sample(n=min(n_legit, len(legit_all)), random_state=seed)
+    frauds = frauds.assign(weight=1.0)
+    legit = legit.assign(weight=len(legit_all) / len(legit))
+    batch = pd.concat([frauds, legit]).sample(frac=1.0, random_state=seed).reset_index(drop=True)
+    batch["weight"] = batch["weight"].round(6)
+    return batch[[*FEATURE_COLS, TARGET, "weight"]]
+
+
+# --------------------------------------------------------------------------------------
+# Threshold analysis (weighted, so a re-weighted demo batch behaves like the full test window)
+# --------------------------------------------------------------------------------------
+def _arrays(scored: pd.DataFrame, label_col: str = TARGET):
+    y = scored[label_col].astype(int).to_numpy() == 1
+    p = scored["fraud_probability"].to_numpy(dtype=float)
+    w = scored["weight"].to_numpy(dtype=float) if "weight" in scored.columns else np.ones(len(scored))
+    amount = scored["Amount"].to_numpy(dtype=float)
+    return y, p, w, amount
+
+
+def threshold_sweep(scored: pd.DataFrame, cost_fp: float, thresholds: Sequence[float] | None = None) -> pd.DataFrame:
+    """Precision, recall and cost at many thresholds.
+
+    Cost model (same as training): a missed fraud costs its Amount, a false alarm costs `cost_fp`.
+    `cost_saving_pct` is relative to having no model at all.
+    """
+    y, p, w, amount = _arrays(scored)
+    grid = np.round(np.linspace(0.01, 0.99, 99), 4) if thresholds is None else np.asarray(thresholds, dtype=float)
+    baseline = float((w * amount)[y].sum())
+    legit_total = float(w[~y].sum())
+    rows = []
+    for t in grid:
+        pred = p >= t
+        tp = float(w[y & pred].sum())
+        fp = float(w[~y & pred].sum())
+        fn = float(w[y & ~pred].sum())
+        total = float((w * amount)[y & ~pred].sum()) + cost_fp * fp
+        rows.append(
+            {
+                "threshold": float(t),
+                "precision": tp / (tp + fp) if (tp + fp) else 1.0,
+                "recall": tp / (tp + fn) if (tp + fn) else 0.0,
+                "caught": tp,
+                "missed": fn,
+                "false_alarms": fp,
+                "fp_per_10k_legit": fp / legit_total * 10_000 if legit_total else 0.0,
+                "total_cost": total,
+                "baseline_cost": baseline,
+                "cost_saving_pct": (baseline - total) / baseline * 100.0 if baseline else 0.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def best_cost_threshold(sweep: pd.DataFrame) -> float:
+    """Threshold with the lowest total cost (ties go to the higher threshold = fewer alerts)."""
+    lowest = sweep["total_cost"].min()
+    return float(sweep.loc[sweep["total_cost"] == lowest, "threshold"].max())
+
+
+def operating_point(scored: pd.DataFrame, cost_fp: float, threshold: float) -> dict[str, float]:
+    """Weighted metrics at exactly one threshold."""
+    return threshold_sweep(scored, cost_fp, [threshold]).iloc[0].to_dict()
